@@ -569,7 +569,7 @@ The repository is intended to be publicly accessible for jury evaluation.
 
 19. Team
 
-Team: Thunder⚡
+Team: Peaky Blinders
 
 Project: SentinelZero Agent Arena
 
