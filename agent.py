@@ -1778,9 +1778,12 @@ class Agent:
         # EVIDENCE ORDER
         # ====================================================
 
-        # Keep the final evidence list focused on the records
-        # that directly support the decision. This avoids flooding
-        # the evidence list with every message returned by a thread.
+        # Build the submitted evidence from IDs that were actually
+        # observed during this task.  Submission 3 showed that the
+        # live Arena can return useful IDs (especially DOM-001 for
+        # trusted official domains) that were previously discarded.
+        # Preserve the important identity/domain/message ordering,
+        # then retain every remaining valid retrieved ID up to the cap.
 
         ordered_evidence = []
 
@@ -1791,56 +1794,39 @@ class Agent:
                 value in evidence
                 and
                 value not in ordered_evidence
+                and
+                EVIDENCE_RE.fullmatch(str(value))
             ):
                 ordered_evidence.append(value)
 
-        # Sender identity is central when a sender maps to an
-        # employee (including impersonation cases).
+        # Sender identity, when actually returned by the directory.
         add_evidence(sender_employee_id)
 
-        # For ordinary external inbound mail, identify the internal
-        # recipient. For spoofed executive-style messages, the sender
-        # identity is the more direct evidence; for financial requests
-        # from other impersonated employees, recipient identity remains
-        # useful.
-        if (
-            not domain_is_official
-            and
-            recipient_employee_id
-            and
-            not (
-                lookalike_domain
-                and
-                sender_is_employee
-                and
-                financial_signal
-            )
-        ):
-            add_evidence(recipient_employee_id)
+        # Recipient identity, when actually returned by the directory.
+        add_evidence(recipient_employee_id)
 
-        # External/malicious/lookalike domain reputation is relevant;
-        # ordinary official internal messages do not need a domain ID.
+        # Domain reputation evidence is useful for both external and
+        # trusted official domains.  Never fabricate a domain ID; only
+        # cite one already present in the tool-derived evidence set.
         rep_id = domain_id(reputation)
+        add_evidence(rep_id)
 
-        if (
-            rep_id
-            and
-            (
-                not domain_is_official
-                or
-                malicious_domain
-                or
-                lookalike_domain
-            )
-        ):
-            add_evidence(rep_id)
-
+        # The analyzed message is always the primary telemetry record.
         add_evidence(message_id)
 
-        # Thread evidence is included when the thread itself is a
-        # material part of the detection (multi-turn grooming).
-        if grooming_signal:
-            add_evidence(thread_id)
+        # Include thread evidence whenever a valid thread ID was
+        # retrieved/present for the task.
+        add_evidence(thread_id)
+
+        # Preserve any additional EMP/DOM/MSG/THR IDs that were
+        # genuinely returned by the investigation tools.  This improves
+        # evidence recall without inventing identifiers or making new
+        # tool calls.  The final cap keeps the submission bounded.
+        for evidence_id in sorted(evidence):
+            if EVIDENCE_RE.fullmatch(str(evidence_id)):
+                prefix = str(evidence_id).split('-', 1)[0]
+                if prefix in {'EMP', 'DOM', 'MSG', 'THR'}:
+                    add_evidence(str(evidence_id))
 
         ordered_evidence = ordered_evidence[:20]
 
