@@ -271,6 +271,25 @@ def employee_id(
     return str(value)
 
 
+def official_email(
+    directory: Any,
+) -> str:
+
+    employee = get_employee(
+        directory
+    )
+
+    value = (
+        employee.get("official_email")
+        or
+        employee.get("email")
+        or
+        ""
+    )
+
+    return str(value).strip().lower()
+
+
 # ============================================================
 # APPROVED DOMAINS
 # ============================================================
@@ -1003,6 +1022,19 @@ class Agent:
             sender_directory
         )
 
+        sender_official_email = official_email(
+            sender_directory
+        )
+
+        sender_identity_mismatch = (
+            sender_is_employee
+            and
+            bool(sender_official_email)
+            and
+            sender_email.strip().lower()
+            != sender_official_email
+        )
+
         recipient_employee_id = employee_id(
             recipient_directory
         )
@@ -1224,7 +1256,28 @@ class Agent:
             )
 
         # ====================================================
-        # 5. VERIFIED INTERNAL
+        # 5. SENDER IDENTITY MISMATCH
+        # ====================================================
+
+        elif sender_identity_mismatch:
+
+            resolution = "quarantine"
+
+            issue = "sender_impersonation"
+
+            severity = "high"
+
+            confidence = 0.94
+
+            reason = (
+                f"Directory identity {sender_employee_id} "
+                f"maps to official address "
+                f"{sender_official_email}, but the actual "
+                f"sender address is {sender_email}."
+            )
+
+        # ====================================================
+        # 6. VERIFIED INTERNAL
         # ====================================================
 
         elif (
