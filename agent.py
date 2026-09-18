@@ -1118,7 +1118,7 @@ class Agent:
 
             severity = "critical"
 
-            confidence = 0.97
+            confidence = 0.95
 
             reason = (
                 f"Message {message_id} contains a direct "
@@ -1152,7 +1152,7 @@ class Agent:
 
             severity = "high"
 
-            confidence = 0.95
+            confidence = 0.92
 
             did = domain_id(
                 reputation
@@ -1190,7 +1190,7 @@ class Agent:
 
             severity = "high"
 
-            confidence = 0.94
+            confidence = 0.91
 
             reason = (
                 f"Thread {thread_id} contains multi-turn "
@@ -1214,7 +1214,7 @@ class Agent:
 
             severity = "medium"
 
-            confidence = 0.90
+            confidence = 0.86
 
             reason = (
                 "The message quotes or reports instruction-like "
@@ -1255,7 +1255,7 @@ class Agent:
 
                 escalation_required = True
 
-                confidence = 0.88
+                confidence = 0.85
 
                 reason = (
                     f"Internal employee {sender_employee_id} "
@@ -1274,7 +1274,7 @@ class Agent:
 
                 severity = "high"
 
-                confidence = 0.92
+                confidence = 0.89
 
                 reason = (
                     f"Verified internal sender "
@@ -1290,7 +1290,7 @@ class Agent:
 
                 severity = "high"
 
-                confidence = 0.92
+                confidence = 0.89
 
                 reason = (
                     f"Verified internal sender "
@@ -1306,7 +1306,7 @@ class Agent:
 
                 severity = "low"
 
-                confidence = 0.94
+                confidence = 0.91
 
                 reason = (
                     f"Sender {sender_employee_id} is an "
@@ -1334,7 +1334,7 @@ class Agent:
 
                 severity = "high"
 
-                confidence = 0.90
+                confidence = 0.86
 
                 reason = (
                     f"Approved external partner domain "
@@ -1360,7 +1360,7 @@ class Agent:
 
                 severity = "high"
 
-                confidence = 0.90
+                confidence = 0.86
 
                 reason = (
                     f"Approved external partner domain "
@@ -1378,7 +1378,7 @@ class Agent:
 
                 severity = "low"
 
-                confidence = 0.91
+                confidence = 0.89
 
                 reason = (
                     f"Sender domain {domain} is an approved "
@@ -1406,7 +1406,7 @@ class Agent:
 
                 severity = "high"
 
-                confidence = 0.94
+                confidence = 0.91
 
                 reason = (
                     f"Sender domain {domain} has lookalike/"
@@ -1424,7 +1424,7 @@ class Agent:
 
                 severity = "medium"
 
-                confidence = 0.78
+                confidence = 0.72
 
                 reason = (
                     f"Sender domain {domain} has lookalike/"
@@ -1445,7 +1445,7 @@ class Agent:
 
             severity = "high"
 
-            confidence = 0.93
+            confidence = 0.90
 
             reason = (
                 "Message contains credential-harvesting "
@@ -1464,7 +1464,7 @@ class Agent:
 
             severity = "high"
 
-            confidence = 0.93
+            confidence = 0.90
 
             reason = (
                 "Message contains malware indicators."
@@ -1492,7 +1492,7 @@ class Agent:
 
             severity = "high"
 
-            confidence = 0.91
+            confidence = 0.89
 
             reason = (
                 "External message contains a financial "
@@ -1513,7 +1513,7 @@ class Agent:
 
             severity = "medium"
 
-            confidence = 0.78
+            confidence = 0.72
 
             reason = (
                 "External message contains deadline/"
@@ -1535,7 +1535,7 @@ class Agent:
 
             severity = "low"
 
-            confidence = 0.88
+            confidence = 0.85
 
             reason = (
                 f"Sender domain {domain} has a safe/"
@@ -1563,7 +1563,7 @@ class Agent:
 
             severity = "low"
 
-            confidence = 0.90
+            confidence = 0.86
 
             reason = (
                 f"Sender {sender_employee_id} is an "
@@ -1584,7 +1584,7 @@ class Agent:
 
             severity = "medium"
 
-            confidence = 0.65
+            confidence = 0.62
 
             reason = (
                 f"Sender domain {domain} could not be "
@@ -1610,7 +1610,7 @@ class Agent:
 
                 severity = "high"
 
-                confidence = 0.85
+                confidence = 0.83
 
                 reason = (
                     "Suspicious internal financial request "
@@ -1725,9 +1725,19 @@ class Agent:
         # EVIDENCE ORDER
         # ====================================================
 
-        # Keep the final evidence list focused on the records
-        # that directly support the decision. This avoids flooding
-        # the evidence list with every message returned by a thread.
+        # Keep evidence focused, but recover useful structured IDs
+        # directly harvested from each investigation result when a
+        # helper function could not extract the ID.
+        #
+        # Priority:
+        #   1. Sender identity
+        #   2. Recipient identity when relevant
+        #   3. Domain reputation
+        #   4. Message
+        #   5. Thread when material
+        #
+        # We deliberately avoid submitting every ID returned by the
+        # tools because unrelated evidence can reduce Evidence F1.
 
         ordered_evidence = []
 
@@ -1741,15 +1751,48 @@ class Agent:
             ):
                 ordered_evidence.append(value)
 
-        # Sender identity is central when a sender maps to an
-        # employee (including impersonation cases).
+        def first_evidence_with_prefix(
+            prefix: str,
+            excluded: set[str] | None = None,
+        ) -> str:
+            excluded = excluded or set()
+
+            for value in sorted(evidence):
+                if (
+                    value.startswith(prefix)
+                    and
+                    value not in excluded
+                ):
+                    return value
+
+            return ""
+
+        # ----------------------------------------------------
+        # 1. SENDER IDENTITY
+        # ----------------------------------------------------
+
+        # Prefer the specifically extracted sender employee ID.
         add_evidence(sender_employee_id)
 
-        # For ordinary external inbound mail, identify the internal
-        # recipient. For spoofed executive-style messages, the sender
-        # identity is the more direct evidence; for financial requests
-        # from other impersonated employees, recipient identity remains
-        # useful.
+        # If the structured helper did not expose the employee ID,
+        # recover an EMP-* identifier harvested from the sender
+        # directory result.
+        if not sender_employee_id:
+            sender_fallback = first_evidence_with_prefix("EMP-")
+
+            if sender_fallback:
+                add_evidence(sender_fallback)
+
+        # ----------------------------------------------------
+        # 2. RECIPIENT IDENTITY
+        # ----------------------------------------------------
+
+        # Recipient identity is useful for inbound external messages,
+        # especially when the sender is not an internal employee.
+        #
+        # For spoofed executive-style financial requests, the sender
+        # identity is more directly relevant, so preserve the existing
+        # V8 exclusion for that case.
         if (
             not domain_is_official
             and
@@ -1765,10 +1808,20 @@ class Agent:
         ):
             add_evidence(recipient_employee_id)
 
-        # External/malicious/lookalike domain reputation is relevant;
-        # ordinary official internal messages do not need a domain ID.
-        rep_id = domain_id(reputation)
+        # If there was no explicit recipient employee ID, do not blindly
+        # select another EMP-* record here because it may be the sender.
+        # This avoids accidentally adding the wrong employee evidence.
 
+        # ----------------------------------------------------
+        # 3. DOMAIN REPUTATION
+        # ----------------------------------------------------
+
+        rep_id = domain_id(
+            reputation
+        )
+
+        # Prefer the domain ID explicitly returned by the reputation
+        # helper.
         if (
             rep_id
             and
@@ -1782,12 +1835,92 @@ class Agent:
         ):
             add_evidence(rep_id)
 
+        # Fallback: if the reputation object contained a DOM-* evidence
+        # ID but domain_id() did not expose it, recover it from the
+        # evidence harvested above.
+        if (
+            not rep_id
+            and
+            (
+                not domain_is_official
+                or
+                malicious_domain
+                or
+                lookalike_domain
+            )
+        ):
+            domain_fallback = first_evidence_with_prefix(
+                "DOM-"
+            )
+
+            if domain_fallback:
+                add_evidence(domain_fallback)
+
+        # ----------------------------------------------------
+        # 4. MESSAGE ID
+        # ----------------------------------------------------
+
+        # The message itself is the primary evidence record and should
+        # remain present whenever it is a valid Arena evidence ID.
         add_evidence(message_id)
 
-        # Thread evidence is included when the thread itself is a
-        # material part of the detection (multi-turn grooming).
+        # ----------------------------------------------------
+        # 5. THREAD EVIDENCE
+        # ----------------------------------------------------
+
+        # Thread history is included when it materially contributed to
+        # the detection, particularly multi-turn grooming.
         if grooming_signal:
-            add_evidence(thread_id)
+
+            add_evidence(
+                thread_id
+            )
+
+            # If the explicit thread_id was unavailable but the thread
+            # investigation returned a THR-* evidence ID, recover it.
+            if (
+                thread_id
+                not in ordered_evidence
+            ):
+                thread_fallback = first_evidence_with_prefix(
+                    "THR-"
+                )
+
+                if thread_fallback:
+                    add_evidence(
+                        thread_fallback
+                    )
+
+        # ----------------------------------------------------
+        # 6. POLICY / LOG EVIDENCE
+        # ----------------------------------------------------
+
+        # Policy and log IDs are only added when they are the strongest
+        # remaining evidence for an escalation. We do not add them
+        # routinely because extra unrelated IDs can hurt Evidence F1.
+        if resolution == "escalate":
+
+            policy_fallback = first_evidence_with_prefix(
+                "POL-"
+            )
+
+            if policy_fallback:
+                add_evidence(
+                    policy_fallback
+                )
+
+            log_fallback = first_evidence_with_prefix(
+                "LOG-"
+            )
+
+            if log_fallback:
+                add_evidence(
+                    log_fallback
+                )
+
+        # ----------------------------------------------------
+        # FINAL LIMIT
+        # ----------------------------------------------------
 
         ordered_evidence = ordered_evidence[:20]
 
