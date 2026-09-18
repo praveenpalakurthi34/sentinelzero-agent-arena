@@ -1,0 +1,14 @@
+﻿.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.pyc
+*.zip
+
+agent_before_live_parser.py
+agent_v2_backup.py
+agent_v3_backup.py
+agent_v8_before_live_fix.py
+inspect_live.py
